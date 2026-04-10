@@ -1,0 +1,134 @@
+/*
+ * Contador_8bits.c
+ *
+ * Created:
+ * Author:
+ * Description: Contador de 8 bits con 8 LEDs.             
+ */
+/****************************************/
+// Encabezado (Libraries)
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <stdint.h>
+
+#define DEBOUNCE_MS  20
+/****************************************/
+// Function prototypes
+void setup();
+void initTMR0();
+void actualizarLEDs(uint8_t valor);
+/****************************************/
+// Variables globales
+volatile uint8_t contador = 0;
+volatile uint8_t dbnc_up  = 0;
+volatile uint8_t dbnc_dn  = 0;
+volatile uint8_t ms_tick  = 0;
+/****************************************/
+// Main Function
+int main(void)
+{
+    cli();
+    setup();
+    initTMR0();
+    sei();
+
+    while(1)
+    {
+        if (ms_tick)
+        {
+            ms_tick = 0;
+
+            // BTN_UP en PB2 (D10), pull-up activo: 0 = presionado
+            if (!(PINB & (1<<PINB2)))
+            {
+                if (dbnc_up < DEBOUNCE_MS)
+                    dbnc_up++;
+                if (dbnc_up == DEBOUNCE_MS)
+                {
+                    dbnc_up++;
+                    contador++;
+                    actualizarLEDs(contador);
+                }
+            }
+            else
+            {
+                dbnc_up = 0;
+            }
+
+            // BTN_DOWN en PB1 (D9), pull-up activo: 0 = presionado
+            if (!(PINB & (1<<PINB1)))
+            {
+                if (dbnc_dn < DEBOUNCE_MS)
+                    dbnc_dn++;
+                if (dbnc_dn == DEBOUNCE_MS)
+                {
+                    dbnc_dn++;
+                    contador--;
+                    actualizarLEDs(contador);
+                }
+            }
+            else
+            {
+                dbnc_dn = 0;
+            }
+        }
+    }
+}
+/****************************************/
+// NON-Interrupt subroutines
+void setup()
+{
+    // SIN cambio de reloj, usamos los 16MHz del Nano
+
+    // PB5 (D13) y PB4 (D12) como salidas (LEDs bit0 y bit1)
+    DDRB  |=  (1<<DDB5)|(1<<DDB4);
+    PORTB &= ~((1<<PB5)|(1<<PB4));
+
+    // PC0-PC5 como salidas (LEDs bit2-bit7, pines A0-A5)
+    DDRC  |=  (1<<DDC0)|(1<<DDC1)|(1<<DDC2)|(1<<DDC3)|(1<<DDC4)|(1<<DDC5);
+    PORTC &= ~((1<<PC0)|(1<<PC1)|(1<<PC2)|(1<<PC3)|(1<<PC4)|(1<<PC5));
+
+    // PB2 (D10) y PB1 (D9) como entradas con pull-up interno
+    DDRB  &= ~((1<<DDB2)|(1<<DDB1));
+    PORTB |=   (1<<PB2) |(1<<PB1);
+
+    actualizarLEDs(0);
+}
+
+void initTMR0()
+{
+    TCCR0A = 0;
+    TCCR0B = 0;
+    // Modo CTC
+    TCCR0A |= (1<<WGM01);
+    // Prescaler 64 -> 16MHz/64 = 250000 ticks/s
+    // Para 1ms: 250000/1000 = 250 ticks -> OCR0A = 249
+    TCCR0B |= (1<<CS01)|(1<<CS00);
+    OCR0A   = 249;
+    // Habilita interrupcion por comparacion A
+    TIMSK0 |= (1<<OCIE0A);
+}
+
+void actualizarLEDs(uint8_t valor)
+{
+    // Bit 0 -> PB5 (D13) primer LED fisico
+    if (valor & (1<<0))
+        PORTB |=  (1<<PB5);
+    else
+        PORTB &= ~(1<<PB5);
+
+    // Bit 1 -> PB4 (D12) segundo LED fisico
+    if (valor & (1<<1))
+        PORTB |=  (1<<PB4);
+    else
+        PORTB &= ~(1<<PB4);
+
+    // Bits 2-7 -> PC0-PC5 (A0-A5) LEDs del tercero al octavo
+    PORTC = (PORTC & 0xC0) | ((valor >> 2) & 0x3F);
+}
+/****************************************/
+// Interrupt routines
+ISR(TIMER0_COMPA_vect)
+{
+    ms_tick = 1;
+}
