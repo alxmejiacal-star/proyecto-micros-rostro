@@ -1,0 +1,69 @@
+#include "EEPROM.h"
+#include <avr/interrupt.h>
+
+// Tabla de bancos — un puntero por servo
+static const uint16_t banco[4] = {
+	EEPROM_BANK_S0,
+	EEPROM_BANK_S1,
+	EEPROM_BANK_S2,
+	EEPROM_BANK_S3
+};
+
+void EEPROM_write(uint16_t direccion, uint8_t dato)
+{
+	while(EECR & (1<<EEPE));
+	EEAR = direccion;
+	EEDR = dato;
+	uint8_t old_sreg = SREG;
+	cli();
+	EECR |= (1<<EEMPE);
+	EECR |= (1<<EEPE);
+	SREG  = old_sreg;
+}
+
+uint8_t EEPROM_read(uint16_t direccion)
+{
+	while(EECR & (1<<EEPE));
+	EEAR = direccion;
+	EECR |= (1<<EERE);
+	return EEDR;
+}
+
+void EEPROM_guardar_posicion(uint8_t pos[4])
+{
+	uint8_t count = EEPROM_read(EEPROM_COUNT_DIR);
+
+	// Celda virgen o valor inválido — sanear
+	if(count == 0xFF || count > EEPROM_MAX_POS) count = 0;
+	if(count >= EEPROM_MAX_POS) return; // banco lleno
+
+	// Escribir en el slot 'count' de cada banco por separado
+	for(uint8_t s = 0; s < 4; s++)
+	{
+		uint16_t dir = banco[s] + count; // 1 byte por slot
+		EEPROM_write(dir, pos[s]);
+	}
+
+	EEPROM_write(EEPROM_COUNT_DIR, count + 1);
+}
+
+void EEPROM_leer_posicion(uint8_t index, uint8_t pos[4])
+{
+	for(uint8_t s = 0; s < 4; s++)
+	{
+		uint16_t dir = banco[s] + index;
+		pos[s] = EEPROM_read(dir);
+	}
+}
+
+uint8_t EEPROM_get_count(void)
+{
+	uint8_t count = EEPROM_read(EEPROM_COUNT_DIR);
+	if(count == 0xFF || count > EEPROM_MAX_POS) return 0;
+	return count;
+}
+
+void EEPROM_reset(void)
+{
+	EEPROM_write(EEPROM_COUNT_DIR, 0);
+}
